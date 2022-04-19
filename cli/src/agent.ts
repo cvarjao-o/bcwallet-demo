@@ -35,8 +35,8 @@ function generate_credential_offer(api_version:AIP_VERSION, connection_id: strin
             "filter": {"indy": {"cred_def_id": cred_def_id}},
             "trace": false,
         }
-        console.log('offer_request:')
-        console.dir(offer_request)
+        //console.log('offer_request:')
+        //console.dir(offer_request)
         return offer_request
     }
 
@@ -50,8 +50,8 @@ function generate_credential_offer(api_version:AIP_VERSION, connection_id: strin
         "credential_preview": cred_preview,
         "trace": false,
     }
-    console.log('offer_request:')
-    console.dir(offer_request)
+    //console.log('offer_request:')
+    //console.dir(offer_request)
     return offer_request
 }
 
@@ -75,7 +75,7 @@ export class Agent {
         this.walletName = wallet
     }
     async getWalletAuthToken(walletName:string) {
-        console.dir(`Wallet Name: ${walletName}`)
+        //console.dir(`Wallet Name: ${walletName}`)
         const resp = await this.adminClient.get(
             `/multitenancy/wallets?wallet_name=${walletName}`,
             {
@@ -85,9 +85,9 @@ export class Agent {
                 timeout: 10000,
             }
         );
-        console.dir(resp.data)
+        //console.dir(resp.data)
         const walletId = resp.data.results[0].wallet_id as string;
-        console.dir(`Wallet Id: ${walletId}`)
+        //console.dir(`Wallet Id: ${walletId}`)
         const resp_1 = await this.adminClient.post(
             `/multitenancy/wallet/${walletId}/token`,
             undefined,
@@ -206,7 +206,7 @@ export class Agent {
             return response.data.credential_definition_ids[0] as string
         })
         const _connection_id = await this.resolveConnection(connection_id)
-        console.log(`Sending '${credential_definition_id}' credentinal to '${_connection_id}'`)
+        //console.log(`Sending '${credential_definition_id}' credentinal to '${_connection_id}'`)
         return this.walletClient
         .post(`/issue-credential/send-offer`
         , generate_credential_offer(AIP_VERSION.AIP10, _connection_id, credential_definition_id)

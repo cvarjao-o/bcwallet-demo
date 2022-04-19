@@ -20,11 +20,11 @@ export const handler = async (argv: Arguments<Options>): Promise<void> => {
   const { wallet, type: object_type } = argv;
   const agent = new Agent(wallet)
   await agent.initialize()
-  console.log(`object_type = ${object_type}`)
+  //console.log(`object_type = ${object_type}`)
   if (object_type === 'connection') {
     const connections = await agent.listConnections()
     console.dir(connections)
-    console.log(`${connections.length}`)
+    //console.log(`${connections.length}`)
   }
   //process.stdout.write(JSON.stringify(invitation));
 };

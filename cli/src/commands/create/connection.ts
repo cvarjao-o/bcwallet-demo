@@ -26,6 +26,7 @@ export const builder: CommandBuilder<Options, Options> = (yargs) =>
       QRCode.toString(invitation.invitation_url,{type:'terminal', small: true} as unknown as QRCodeToStringOptions,  (err, QRcode) => {
         if(err) return console.log("error occurred")
         process.stdout.write(JSON.stringify(invitation));
+        process.stdout.write('\n')
         process.stdout.write(QRcode)
         process.exit(0);
       })  
