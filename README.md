@@ -11,6 +11,7 @@ ngrok http 8020
 ```
 
 1. Start aca-py
+
 MUST listen on localhost:8020 and localhost:2021
 ```
 export WEBOOK_URL="http://$(grep -m 1 nameserver /etc/resolv.conf | awk '{print $2}'):8000/issuer/faber/webhooks"
@@ -21,6 +22,7 @@ docker run -p 8020:8020 -p 8021:8021 -p 8023:8023 bcgovimages/aries-cloudagent:p
 ```
 
 1. Start server
+
 MUST listen on localhost:8000
 ```
 cd server && npm start

@@ -1,28 +1,14 @@
-import React from 'react';
-import axios, { AxiosResponse, CancelTokenSource } from 'axios';
+import React, { useState } from 'react';
+import axios, { CancelTokenSource } from 'axios';
 import { Link, Outlet, RouteObject, useParams } from "react-router-dom";
 import { useForm, SubmitHandler } from "react-hook-form";
 import QRCode from "react-qr-code";
-import { ApiSendRequestRequest, GetConnectionReponse, IConnection, IndyProofRequest, IndyProofRequestAttributeSpec } from './types';
+import { GetConnectionReponse, IConnection } from './types';
+import Popup from 'reactjs-popup';
+import 'reactjs-popup/dist/index.css';
 
 const defaultListOfConnections: IConnection[] = [];
 
-function createDegreeProofRequest(): IndyProofRequest {
-    const attributes:IndyProofRequestAttributeSpec[] = [
-        {name: "name", restrictions:[{"schema_name": "degree schema"}]},
-        {name: "date", restrictions:[{"schema_name": "degree schema"}]},
-        {name: "degree", restrictions:[{"schema_name": "degree schema"}]},
-    ]
-    return {
-        name: 'Proof request',
-        version: '1.0',
-        requested_attributes: attributes.reduce((accumulator:any, currentValue) =>{
-            accumulator[`0_${currentValue.name}_uuid`] = currentValue
-            return accumulator;
-        }, {}),
-        requested_predicates: {}
-    }
-}
 
 
 export const Connections: React.FC = () => {
@@ -53,7 +39,7 @@ export const Connections: React.FC = () => {
 
   React.useEffect(() => {
     axios
-      .get<GetConnectionReponse>('http://localhost:8021/connections', {
+      .get<GetConnectionReponse>('http://localhost:8000/issuer/faber/connections', {
         cancelToken: cancelTokenSource.token,
         headers: {
           'Content-Type': 'application/json',
@@ -80,7 +66,7 @@ export const Connections: React.FC = () => {
   const [invitationUrl, setInvitationUrl]: [string, (error: string) => void] = React.useState('');
   const handleNewInvitationClick = ()=> {
     axios
-    .post('http://localhost:8021/connections/create-invitation', {
+    .post('http://localhost:8000/issuer/faber/connections/create-invitation', {
       headers: {
         'Content-Type': 'application/json',
       },
@@ -91,6 +77,32 @@ export const Connections: React.FC = () => {
         setInvitationUrl(response.data.invitation_url)
     })
   }
+  const handleConnectionlessProofRequestClick = () =>{
+    axios
+      .post(`http://localhost:8000/issuer/faber/present-proof/create-request`
+        , undefined
+        , {
+          params: {schema_name:'degree schema'},
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000,
+      })
+      .then((response) => {
+        setInvitationUrl( 'http://192.168.1.70:8000/issuer/faber/webhooks/pres_req/'+ response.data.presentation_exchange_id + '/')
+      })
+      .catch((ex) => {
+        let error = axios.isCancel(ex)
+          ? 'Request Cancelled'
+          : ex.code === 'ECONNABORTED'
+          ? 'A timeout has occurred'
+          : ex.response.status === 404
+          ? 'Resource Not Found'
+          : 'An unexpected error has occurred';
+
+        setError(error);
+      });
+  };
   return (
     <div>
       {loading && <button onClick={handleCancelClick}>Cancel</button>}
@@ -103,7 +115,49 @@ export const Connections: React.FC = () => {
       </ul>
       <button onClick={handleNewInvitationClick}>New Invitation</button>
       {error && <p className="error">{error}</p>}
-      {invitationUrl && <><br/><QRCode value={invitationUrl} /></>}
+      <button onClick={handleConnectionlessProofRequestClick}>Send Connectionless Proof Request</button>
+      {invitationUrl && <><br/>{invitationUrl}<br/><br/>&nbsp;&nbsp;&nbsp;<QRCode value={invitationUrl} /></>}
+    </div>
+  );
+};
+type sendCredentialHandlerType = (credential_defintion_id:string) => void;
+
+const SendCredentialScreen = ({sendCredentialHandler, value}:{value: string, sendCredentialHandler:sendCredentialHandlerType}) => {
+  const [open, setOpen] = useState(false);
+  const closeModal = () => setOpen(false);
+  const [credentials, setCredentials] = React.useState([] as string[]);
+  React.useEffect(() => {
+    axios
+      .get(`http://localhost:8000/issuer/faber/credential-definitions`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000,
+      })
+      .then((response) => {
+        setCredentials(response.data);
+      })
+  }, []);
+  const selectCredentialDefinition = (credential_defintion_id:string) => {
+    console.log(`credential_defintion_id=${credential_defintion_id}`)
+    setOpen(false)
+    sendCredentialHandler(credential_defintion_id)
+  };
+  return (
+    <div>
+      <button type="button" className="button" onClick={() => setOpen(o => !o)}>{value}</button>
+      <Popup open={open} onClose={closeModal}>
+        <div className="modal">
+          <a className="close" onClick={closeModal}>
+            &times;
+          </a>
+          <ul className="credential_definitions">
+            {credentials.map((credential_id) => (
+              <li key={credential_id}><a onClick={() => selectCredentialDefinition(credential_id)}>{credential_id}</a></li>
+            ))}
+          </ul>
+        </div>
+      </Popup>
     </div>
   );
 };
@@ -130,6 +184,21 @@ export const ConnectionDetail: React.FC = () => {
           cancelTokenSource.cancel('User cancelled operation');
         }
       };
+      const handleSendCredential2Click = (credential_definition_id:string)=> {
+        axios
+        .post(`http://localhost:8000/issuer/faber/issue-credential/send-offer`
+          , undefined
+          , {
+          params: {credential_definition_id: credential_definition_id, connection_id:id},
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 60000,
+        })
+        .then((response) => {
+            console.dir(response.data);
+        })
+      }
       const handleSendCredentialClick = ()=> {
         axios
         .post(`http://localhost:8000/issuer/faber/issue-credential/send-offer`
@@ -173,7 +242,7 @@ export const ConnectionDetail: React.FC = () => {
       };
       React.useEffect(() => {
         axios
-          .get<IConnection>(`http://localhost:8021/connections/${id}`, {
+          .get<IConnection>(`http://localhost:8000/issuer/faber/connections/${id}`, {
             cancelToken: cancelTokenSource.token,
             headers: {
               'Content-Type': 'application/json',
@@ -202,12 +271,12 @@ export const ConnectionDetail: React.FC = () => {
         <div>
           {loading && <button onClick={handleCancelClick}>Cancel</button>}
           <h3>connection_id:{connection.connection_id}</h3>
-          <ul className="connectionDetail">
+          <div className="connectionDetail">
             {Object.entries(connection).map((entry) => (
-              <li>{entry[0]}: {entry[1]}</li>
+              <div key={entry[0]}>{entry[0]}: {entry[1]}</div>
             ))}
-          </ul>
-          <button onClick={handleSendCredentialClick}>Send Credential</button>
+          </div>
+          <SendCredentialScreen value='Send Credential' sendCredentialHandler={handleSendCredential2Click}/>
           <button onClick={handleProofRequestClick}>Send Proof Request</button>
 
           <Link to="presentations">presentations</Link>
@@ -235,12 +304,6 @@ interface PresentationExchangeList {
     results: PresentationExchange[];
 }
 
-interface Schema {
-    attrNames: string[];
-    name: string;
-    version: string;
-    id: string;
-}
 
 export const PresentationRequests: React.FC = () => {
     let { id } = useParams<"id">();
@@ -267,7 +330,7 @@ export const PresentationRequests: React.FC = () => {
 
       React.useEffect(() => {
         axios
-          .get<PresentationExchangeList>(`http://localhost:8021/present-proof/records?connection_id=${id}`, {
+          .get<PresentationExchangeList>(`http://localhost:8000/issuer/faber/present-proof/records?connection_id=${id}`, {
             cancelToken: cancelTokenSource.token,
             headers: {
               'Content-Type': 'application/json',
@@ -316,7 +379,7 @@ export const NewPresentationRequest: React.FC = () => {
     React.useEffect(() => {
         // load schemIds
         axios
-          .get(`http://localhost:8021/schemas/created`, {
+          .get(`http://localhost:8000/issuer/faber/schemas/created`, {
             headers: {
               'Content-Type': 'application/json',
             },
@@ -330,7 +393,7 @@ export const NewPresentationRequest: React.FC = () => {
         console.log(e.target.value)
         if (e.target.value.length > 0) {
             axios
-            .get(`http://localhost:8021/schemas/${e.target.value}`, {
+            .get(`http://localhost:8000/issuer/faber/schemas/${e.target.value}`, {
               headers: {
                 'Content-Type': 'application/json',
               },
@@ -348,11 +411,11 @@ export const NewPresentationRequest: React.FC = () => {
             <select {...register("schemaId")} onChange={handleSchemaIdChange} >
             <option value="">(select)</option>
             {schemaIds.map((schemaId) => (
-            <option value={schemaId}>{schemaId}</option>
+            <option key={schemaId} value={schemaId}>{schemaId}</option>
             ))}
             </select><br/>
             {fields.map((fieldName) => (
-                <><label>{fieldName}</label><input {...register(fieldName)} /><br /></>
+                <div key={fieldName}><label>{fieldName}</label><input {...register(fieldName)} /><br /></div>
             ))}
             <input type="submit" />
         </form>

@@ -2,6 +2,7 @@ import axios from "axios";
 import type { RouteObject } from "react-router-dom";
 import { Outlet, Link, useRoutes, useParams } from "react-router-dom";
 import { ConnectionRoute } from "./Connections";
+
 export default function App() {
   let routes: RouteObject[] = [
     { path: "/webhook", element: <NoMatch /> },
@@ -92,18 +93,8 @@ function Home() {
   const handleSetupClick = () => {
     axios
       .post(
-        `http://localhost:8021/schemas`,
-        {
-          schema_name: "degree schema",
-          schema_version: `83.35.${Date.now()}`,
-          attributes: [
-            "name",
-            "date",
-            "degree",
-            "birthdate_dateint",
-            "timestamp",
-          ],
-        },
+        `http://localhost:8000/issuer/faber/setup`,
+        undefined,
         {
           headers: {
             "Content-Type": "application/json",
@@ -111,24 +102,7 @@ function Home() {
           timeout: 100000,
         }
       )
-      .then((response) => {
-        return axios.post(
-          `http://localhost:8021/credential-definitions`,
-          {
-            schema_id: response.data.schema_id,
-            support_revocation: false,
-            tag: "faber.agent.degree_schema",
-          },
-          {
-            headers: {
-              "Content-Type": "application/json",
-            },
-            timeout: 100000,
-          }
-        );
-      });
   };
-
   return (
     <div>
       <h2>Home</h2>
