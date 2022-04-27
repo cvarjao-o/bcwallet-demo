@@ -3,6 +3,7 @@
 import {appendFile} from 'fs/promises'
 import {resolve as resolvePath} from 'path'
 const APP_ID ='ca.bc.gov.BCWallet'
+const controller_address = "localhost:8000"
 const SCREENS={
     ONBOARDING:{
         selector:'//android.view.ViewGroup/android.view.View[@text="BC Wallet"]'
@@ -95,7 +96,14 @@ default custom.png
         return browser.saveRecordingScreen(`./videos/${fileName}`)
         //return saveStepVideo('00','020');
     }
-    it.only('Onboarding', async () => {
+    const enterPin = async () => {
+        await waitForSelector(SCREENS.ENTER_PIN.selector)
+        await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_ENTER_PIN_SELECTOR)).setValue("123456");
+        await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_ENTER_BUTTON_SELECTOR)).click();
+        await waitForSelector('//android.widget.TextView[@text="Wallet initialized"]')
+        await waitForSelector(SCREENS.HOME.selector)
+    }
+    it('Onboarding', async () => {
         const waitAndClick = async (selector) => {
             const nextEl = await waitForSelector(selector);
             return nextEl.click()
@@ -116,7 +124,9 @@ default custom.png
             return nextEl
         }
         const waitAndClickNext = async () => {
-            return waitAndClick2('//android.widget.TextView[@text="Next"]', '//android.widget.HorizontalScrollView/android.view.ViewGroup/android.view.ViewGroup/android.view.ViewGroup/android.widget.TextView[1]');
+            //return waitAndClick2('//android.widget.TextView[@text="Next"]', '//android.widget.HorizontalScrollView/android.view.ViewGroup/android.view.ViewGroup/android.view.ViewGroup/android.widget.TextView[1]');
+            await waitAndClick('//android.widget.TextView[@text="Next"]')
+            await browser.pause(3000)
         }
         await browser.execute("mobile: shell", {
             command: 'pm',
@@ -145,6 +155,7 @@ default custom.png
             await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_ENTER_PIN_SELECTOR)).setValue("123456");
             await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_REENTER_PIN_SELECTOR)).setValue("123456");
             await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_CREATE_BUTTON_SELECTOR)).click();
+            await waitForSelector('//android.widget.TextView[@text="Wallet initialized"]')
             await waitForSelector('//android.view.ViewGroup/android.widget.TextView[starts-with(@text,"Notifications")]')
             await userPause();
         })
@@ -155,58 +166,84 @@ default custom.png
     async function obtainCredential(scenarioId, stepPrefix){
         const QRCode = await import("qrcode");
         const {default:fetch} = await import('node-fetch');
-        const response = await fetch('http://localhost:8000/issuer/faber/connections/create-invitation', {method: 'POST', headers: {'Content-Type': 'application/json'}});
+        const response = await fetch(`http://${controller_address}/issuer/faber/connections/create-invitation`, {method: 'POST', headers: {'Content-Type': 'application/json'}});
         invitation = (await response.json() as any)
         const invitation_url = invitation.invitation_url
         let credential =  null;
+        let substep = 0
         await QRCode.toFile(resolvePath(process.env.ANDROID_SDK_ROOT, 'emulator/resources/custom.png'),  invitation_url, {scale: 8})
-        await step(scenarioId,`${stepPrefix}00`, async () => {
-            await (await waitForSelector('~Scan')).click();
-            await browser.pause(5000);
+        await step(scenarioId,`${stepPrefix}${(++substep).toString().padStart(2, '0')}`, async () => {
+            for (const iterator of [1,2,3]) await waitForSelector('~Scan')
+            waitForSelectorAndClick('~Scan',{delay:3000});
+            //await browser.pause(3000);
             while(true){
-                const [homeScreen, allowCameraBtn] = await Promise.all([browser.$(SCREENS.HOME.selector), browser.$('id=com.android.permissioncontroller:id/permission_allow_foreground_only_button')])
+                const elements = ['id=com.ariesbifold:id/JustAMoment', 'id=com.android.permissioncontroller:id/permission_allow_foreground_only_button']
+                console.log('Waiting for elements:', elements)
+                const [homeScreen, allowCameraBtn] = await Promise.all(elements.map((item)=> browser.$(item)))
                 if (await allowCameraBtn.isExisting()){
                     await allowCameraBtn.click()
-                    await userPause();
+                    //await userPause();
                 }else if (await homeScreen.isExisting()){
                     break
                 }
+                //await browser.pause(1000);
             }
         })
-        await step(scenarioId,`${stepPrefix}01`, async () => {
-            await (await waitForSelector(SCREENS.HOME.button)).click();
-            console.log('Offering Credential')
-            credential = await (await fetch(`http://localhost:8000/issuer/faber/issue-credential/send-offer?${new URLSearchParams({schema_name:'degree schema', connection_id: invitation.connection_id}).toString()}`, {method: 'POST', headers: {'Content-Type': 'application/json'}})).json();
+        await step(scenarioId,`${stepPrefix}${(++substep).toString().padStart(2, '0')}`, async () => {
+            await waitForSelector('id=com.ariesbifold:id/JustAMoment');
+            await browser.pause(5000);
+        })
+        console.log('Waiting for Connection')
+        while(true) {
+            const response = await (await fetch(`http://${controller_address}/issuer/faber/connections/${invitation.connection_id}`, {method: 'GET', headers: {'Content-Type': 'application/json'}})).json()
+            if(response.state === 'active') {
+                break
+            }
+        }
+        console.log('Offering Credential')
+        credential = await (await fetch(`http://${controller_address}/issuer/faber/issue-credential/send-offer?${new URLSearchParams({schema_name:'degree schema', connection_id: invitation.connection_id}).toString()}`, {method: 'POST', headers: {'Content-Type': 'application/json'}})).json();
+        await waitForSelectorAndClick('id=com.ariesbifold:id/BackToHome', {delay:1000})
+        await waitForSelector('//android.view.ViewGroup/android.widget.TextView[starts-with(@text,"Notifications")]')
+        await step(scenarioId,`${stepPrefix}${(++substep).toString().padStart(2, '0')}`, async () => {
+            //await (await waitForSelector(SCREENS.HOME.button)).click();
             await waitForSelector('//android.view.ViewGroup/android.widget.TextView[starts-with(@text,"Notifications")]')
             await waitForSelector('//android.view.ViewGroup/android.widget.TextView[starts-with(@text,"New Credential Offer")]')
             await waitForSelectorAndClick('//android.view.ViewGroup/android.widget.TextView[starts-with(@text,"View")]', {delay: USER_XP_DELAY})
-            // android.widget.TextView
-            const continueBtn = await scrollUntil('//android.widget.TextView[@text="Accept"]');
             await browser.pause(5000);
+        })
+        while (true){
+            const offerScreen = waitForSelector('id=com.ariesbifold:id/HeaderText')
+            if ((await (await offerScreen).getText()).endsWith('is offering you a credential')){
+                break
+            }
+        }
+        await step(scenarioId,`${stepPrefix}${(++substep).toString().padStart(2, '0')}`, async () => {
+            await waitForSelector('id=com.ariesbifold:id/HeaderText')
+            const continueBtn = await scrollUntil('//android.widget.TextView[@text="Accept"]');
+            await browser.pause(3000);
             await continueBtn.click()
             await waitForSelector('//android.widget.TextView[@text="Your credential is on the way"]')
             await browser.pause(3000);
         })
+
         await waitForSelector('//android.widget.TextView[@text="Credential added to your wallet"]')
-        await step(scenarioId,`${stepPrefix}02`, async () => {
+        await step(scenarioId,`${stepPrefix}${(++substep).toString().padStart(2, '0')}`, async () => {
             await browser.pause(3000);
             await waitForSelectorAndClick('//android.widget.TextView[@text="Done"]', {delay: USER_XP_DELAY})
+            await waitForSelector(SCREENS.HOME.button)
         })
-        await step(scenarioId,`${stepPrefix}03`, async () => {
+        await step(scenarioId,`${stepPrefix}${(++substep).toString().padStart(2, '0')}`, async () => {
             await (await waitForSelector('//android.view.View[@text="Credentials"]')).click()
             await browser.pause(5000);
         })
-        credential = await (await fetch(`http://localhost:8000/issuer/faber/issue-credential/records/${credential.credential_exchange_id}`, {method: 'GET', headers: {'Content-Type': 'application/json'}})).json();
+        credential = await (await fetch(`http://${controller_address}/issuer/faber/issue-credential/records/${credential.credential_exchange_id}`, {method: 'GET', headers: {'Content-Type': 'application/json'}})).json();
         return credential
     }
     it('Obtain Credential', async () => {
         const SCENARIO_ID='01'
         await step(SCENARIO_ID,'010', async () => {
             await browser.launchApp()
-            await waitForSelector(SCREENS.ENTER_PIN.selector)
-            await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_ENTER_PIN_SELECTOR)).setValue("123456");
-            await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_ENTER_BUTTON_SELECTOR)).click();
-            await waitForSelector(SCREENS.HOME.selector)
+            await enterPin()
             await browser.pause(5000);
         })
         await obtainCredential(SCENARIO_ID, '02')
@@ -217,13 +254,10 @@ default custom.png
         const {default:fetch} = await import('node-fetch');
         await browser.launchApp()
         await waitForSelector(SCREENS.ENTER_PIN.selector)
-        await step(SCENARIO_ID,'0100', async () => {            
-            await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_ENTER_PIN_SELECTOR)).setValue("123456");
-            await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_ENTER_BUTTON_SELECTOR)).click();
-            await waitForSelector(SCREENS.HOME.selector)
-            await (await waitForSelector('~Home')).click();
+        await step(SCENARIO_ID,'0100', async () => {        
+            await enterPin()
         })
-        await fetch(`http://localhost:8000/issuer/faber/present-proof/send-request?${new URLSearchParams({schema_name:'degree schema', connection_id: invitation.connection_id}).toString()}`, {method: 'POST', headers: {'Content-Type': 'application/json'}});
+        await fetch(`http://${controller_address}/issuer/faber/present-proof/send-request?${new URLSearchParams({schema_name:'degree schema', connection_id: invitation.connection_id}).toString()}`, {method: 'POST', headers: {'Content-Type': 'application/json'}});
         await step(SCENARIO_ID,'0200', async () => {
             await waitForSelector('//android.view.ViewGroup/android.widget.TextView[starts-with(@text,"Notifications")]')
             await browser.pause(5000);
@@ -249,17 +283,16 @@ default custom.png
             await userPause()
         })
     }).timeout(1200000)
-    it.only('Present Revocable Credential', async () => {
+    it('Present Revocable Credential', async () => {
         const SCENARIO_ID='03'
         let stp = 0
         let s2 = 0
         const {default:fetch} = await import('node-fetch');
         await browser.launchApp()
         await waitForSelector(SCREENS.ENTER_PIN.selector)
-        await step(SCENARIO_ID,`${++stp}`.padStart(2, '0') + '00', async () => {            
-            await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_ENTER_PIN_SELECTOR)).setValue("123456");
-            await (await waitForSelector(SCREENS.ENTER_PIN.FIELD_ENTER_BUTTON_SELECTOR)).click();
-            await waitForSelector(SCREENS.HOME.selector)
+        await step(SCENARIO_ID,`${++stp}`.padStart(2, '0') + '00', async () => {
+            await enterPin()
+            await browser.pause(5000);
             await (await waitForSelector(SCREENS.HOME.button)).click();
         })
         const cred = await obtainCredential(SCENARIO_ID, `${++stp}`.padStart(2, '0'))
@@ -271,7 +304,7 @@ default custom.png
         console.log(`revocation_id: ${cred.revocation_id}`)
         
         await (await waitForSelector(SCREENS.HOME.button)).click();
-        await fetch(`http://localhost:8000/issuer/faber/present-proof/send-request?${new URLSearchParams({schema_name:'degree schema', connection_id: cred.connection_id, non_revoked: 'true'}).toString()}`, {method: 'POST', headers: {'Content-Type': 'application/json'}});
+        await fetch(`http://${controller_address}/issuer/faber/present-proof/send-request?${new URLSearchParams({schema_name:'degree schema', connection_id: cred.connection_id, non_revoked: 'true'}).toString()}`, {method: 'POST', headers: {'Content-Type': 'application/json'}});
         await step(SCENARIO_ID, `${++stp}`.padStart(2, '0') + '00', async () => {
             await waitForSelector('//android.view.ViewGroup/android.widget.TextView[starts-with(@text,"Notifications")]')
             await browser.pause(5000);
@@ -299,11 +332,11 @@ default custom.png
         })
         //Revoke credential
         console.log('Revoking Credential')
-        await fetch(`http://localhost:8000/issuer/faber/revocation/revoke`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body:JSON.stringify({notify:true, publish: true, connection_id: cred.connection_id, rev_reg_id:cred.revoc_reg_id, cred_rev_id: cred.revocation_id, comment:'Revoked for some reason' })});
+        await fetch(`http://${controller_address}/issuer/faber/revocation/revoke`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body:JSON.stringify({notify:true, publish: true, connection_id: cred.connection_id, rev_reg_id:cred.revoc_reg_id, cred_rev_id: cred.revocation_id, comment:'Revoked for some reason' })});
         // wait 10s
         await browser.pause(10000);
         await (await waitForSelector(SCREENS.HOME.button)).click();
-        await fetch(`http://localhost:8000/issuer/faber/present-proof/send-request?${new URLSearchParams({schema_name:'degree schema', connection_id: cred.connection_id, non_revoked: 'true'}).toString()}`, {method: 'POST', headers: {'Content-Type': 'application/json'}});
+        await fetch(`http://${controller_address}/issuer/faber/present-proof/send-request?${new URLSearchParams({schema_name:'degree schema', connection_id: cred.connection_id, non_revoked: 'true'}).toString()}`, {method: 'POST', headers: {'Content-Type': 'application/json'}});
         await step(SCENARIO_ID,`${++stp}`.padStart(2, '0') + '00', async () => {
             await waitForSelector('//android.view.ViewGroup/android.widget.TextView[starts-with(@text,"Notifications")]')
             await browser.pause(5000);
